@@ -438,19 +438,16 @@ def supplement_data_worker(params, progress_queue, result_queue, stop_event):
             check_interrupt=check_interrupt
         )
         
-        # 构建详细的完成消息
+        # 构建详细的完成消息（单行汇总，避免换行）
         total = supplement_stats['success_count'] + supplement_stats['empty_data_count'] + supplement_stats['error_count']
-        result_message = f"数据补充完成！\n"
-        
-        if supplement_stats['empty_data_count'] > 0:
-            result_message += f"数据为空: {supplement_stats['empty_data_count']} 只股票\n"
-            if len(supplement_stats['empty_stocks']) <= 10:
-                result_message += f"数据为空的股票: {', '.join(supplement_stats['empty_stocks'])}\n"
-            else:
-                result_message += f"数据为空的股票(前10个): {', '.join(supplement_stats['empty_stocks'][:10])}...\n"
-        
-        if supplement_stats['error_count'] > 0:
-            result_message += f"处理出错: {supplement_stats['error_count']} 只股票\n"
+        parts = ["数据补充完成！"]
+        parts.append(f"总股票数: {total}")
+        parts.append(f"成功补充: {supplement_stats['success_count']} 只股票")
+        if supplement_stats['empty_data_count']:
+            parts.append(f"空数据: {supplement_stats['empty_data_count']}")
+        if supplement_stats['error_count']:
+            parts.append(f"出错: {supplement_stats['error_count']}")
+        result_message = "；".join(parts)
         
         # 发送完成信号
         result_queue.put(('success', result_message.strip()))
@@ -829,8 +826,13 @@ class StockDataProcessorGUI(QMainWindow):
         # 移除激活相关的初始化代码
         self._activation_warning_shown = False
 
-        # 源码模式的图标路径
-        self.ICON_PATH = os.path.join(os.path.dirname(__file__), 'icons')
+        # 修改图标路径的获取方式
+        if getattr(sys, 'frozen', False):
+            # 打包后的环境，图标文件在 _internal/icons 目录下
+            self.ICON_PATH = os.path.join(os.path.dirname(sys.executable), '_internal', 'icons')
+        else:
+            # 开发环境
+            self.ICON_PATH = os.path.join(os.path.dirname(__file__), 'icons')
         
         # 确保图标目录存在
         os.makedirs(self.ICON_PATH, exist_ok=True)
@@ -911,14 +913,14 @@ class StockDataProcessorGUI(QMainWindow):
         height = screen.height()
         
         # 根据屏幕宽度确定字体缩放比例
-        if width >= 2560:  # 4K及以上分辨率
+        if width >= 3840:  # 4K及以上分辨率
+            return 1.8
+        elif width >= 2560:  # 2K分辨率
             return 1.4
-        elif width >= 1920:  # 1080p及以上分辨率  
-            return 1.2
-        elif width >= 1440:  # 720p及以上分辨率
+        elif width >= 1920:  # 1080P分辨率
             return 1.0
         else:  # 低分辨率
-            return 0.9
+            return 0.8
 
     def get_scaled_stylesheet(self):
         """获取根据分辨率缩放的样式表"""
@@ -1668,23 +1670,25 @@ class StockDataProcessorGUI(QMainWindow):
         # 设置窗口标题栏颜色（仅适用于Windows） - 借鉴 GUIkhQuant.py
         if sys.platform == 'win32':
             try:
-                from ctypes import windll, c_int, byref, sizeof
-                from ctypes.wintypes import DWORD
+                from ctypes import windll, c_int, byref, sizeof, POINTER
+                from ctypes.wintypes import DWORD, HWND, BOOL
 
                 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
                 DWMWA_CAPTION_COLOR = 35
                 
                 hwnd = int(self.winId())
-                # 启用深色模式
+                # 先尝试启用深色模式（一些较新Windows版本需要这个才能让标题栏颜色生效）
                 windll.dwmapi.DwmSetWindowAttribute(
                     hwnd,
                     DWMWA_USE_IMMERSIVE_DARK_MODE,
-                    byref(c_int(2)),  # 2 means true
+                    byref(c_int(1)), # 1 for true, 0 for false, 2 for force true
                     sizeof(c_int)
                 )
                 
-                # 设置标题栏颜色
-                caption_color = DWORD(0x2b2b2b)  # 使用与主界面相同的颜色
+                # 设置标题栏颜色为 #2b2b2b
+                # BGR format: 0x00bbggrr
+                caption_color_val = 0x002B2B2B 
+                caption_color = DWORD(caption_color_val)
                 windll.dwmapi.DwmSetWindowAttribute(
                     hwnd,
                     DWMWA_CAPTION_COLOR,
@@ -1788,7 +1792,7 @@ class StockDataProcessorGUI(QMainWindow):
         # title_bar_layout = QHBoxLayout(title_bar)
         # title_bar_layout.setContentsMargins(15, 0, 10, 0) 
         # title_bar_layout.setSpacing(0) 
-        # title_label = QLabel("看海量化交易系统——数据模块")
+        # title_label = QLabel("看海量化回测系统——数据模块")
         # title_label.setObjectName("titleLabel")
         # title_bar_layout.addWidget(title_label)
         # title_bar_layout.addStretch()
@@ -2246,6 +2250,7 @@ class StockDataProcessorGUI(QMainWindow):
             'hs300': '沪深300成分股',
             'sz50': '上证50成分股',
             'indices': '常用指数',
+            'convertible_bonds': '沪深转债',
             'custom': '自选清单'  # 添加自选清单选项
         }
         
@@ -2411,7 +2416,7 @@ class StockDataProcessorGUI(QMainWindow):
                     # 修改这里：排除所有预定义的文件名，包括自选清单
                     if line.strip() and not any(board_name in line for board_name in [
                         '上证A股', '深证A股', '创业板', '科创板', '沪深A股', '指数',
-                        '中证500成分股', '沪深300成分股', '上证50成分股', 'otheridx.csv'  # 添加 otheridx.csv
+                        '中证500成分股', '沪深300成分股', '上证50成分股', '沪深转债', 'otheridx.csv'  # 添加沪深转债和otheridx.csv
                     ]):
                         custom_files.append(line.strip())
             
@@ -2450,6 +2455,8 @@ class StockDataProcessorGUI(QMainWindow):
                                 logging.info(f"已创建新的自选清单文件: {custom_file}")
                             except Exception as e:
                                 logging.error(f"创建自选清单文件失败: {str(e)}")
+                    elif stock_type == 'convertible_bonds':
+                        filename = os.path.join(data_dir, "沪深转债_列表.csv")
                     else:
                         board_names = {
                             'sh_a': '上证A股',
@@ -3442,80 +3449,12 @@ class StockDataProcessorGUI(QMainWindow):
             if "没有下载到新数据" in message:
                 self.status_label.setText("补充数据完成，未发现新数据可供下载。")
             else:
-                # 显示成功的弹窗
-                custom_msg_box = QMessageBox(self)
-                custom_msg_box.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-                custom_msg_box.setText(message)
-                custom_msg_box.setStyleSheet("""
-                    QMessageBox {
-                        background-color: #F0F0F0;
-                        border: 1px solid #D0D0D0;
-                        border-radius: 10px;
-                    }
-                    QMessageBox QLabel {
-                        background-color: #F0F0F0;
-                        color: #2C3E50;
-                        font-size: 24px;
-                        padding: 20px;
-                    }
-                """)
-                ok_button = custom_msg_box.addButton(QMessageBox.Ok)
-                ok_button.setMinimumSize(120, 50)
-                ok_button.setStyleSheet("""
-                    QPushButton {
-                        font-size: 18px;
-                        background-color: #808080;
-                        color: white;
-                        border: none;
-                        padding: 8px;
-                        border-radius: 6px;
-                    }
-                    QPushButton:hover {
-                        background-color: #909090;
-                    }
-                    QPushButton:pressed {
-                        background-color: #707070;
-                    }
-                """)
-                custom_msg_box.exec_()
+                # 使用标准消息框，自动适配内容
+                QMessageBox.information(self, "成功", message)
                 self.status_label.setText(message)  # 成功时也更新底部状态栏
         else:
-            error_msg_box = QMessageBox(self)
-            error_msg_box.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-            error_msg_box.setIcon(QMessageBox.Critical)
-            error_msg_box.setText(f"补充数据过程中发生错误: {message}")
-            error_msg_box.setStyleSheet("""
-                QMessageBox {
-                    background-color: #F0F0F0;
-                    border: 1px solid #D0D0D0;
-                    border-radius: 10px;
-                }
-                QMessageBox QLabel {
-                    background-color: #F0F0F0;
-                    color: #2C3E50;
-                    font-size: 24px;
-                    padding: 20px;
-                }
-            """)
-            ok_button = error_msg_box.addButton(QMessageBox.Ok)
-            ok_button.setMinimumSize(120, 50)
-            ok_button.setStyleSheet("""
-                QPushButton {
-                    font-size: 24px;
-                    background-color: #808080;
-                    color: white;
-                    border: none;
-                    padding: 8px;
-                    border-radius: 6px;
-                }
-                QPushButton:hover {
-                    background-color: #909090;
-                }
-                QPushButton:pressed {
-                    background-color: #707070;
-                }
-            """)
-            error_msg_box.exec_()
+            # 使用标准错误消息框
+            QMessageBox.critical(self, "错误", f"补充数据过程中发生错误: {message}")
             self.status_label.setText(f"补充数据错误: {message}") # 错误时也更新底部状态栏
 
         self.progress_bar.setValue(0)
@@ -3644,8 +3583,13 @@ def setup_logging():
         # 在这里设置内部标志
         ENABLE_LOGGING = True  # 将标志设置为 True 开启完整日志，False 则只记录错误
         
-        # 确定日志目录路径 - 源码模式
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        # 确定日志目录路径
+        if getattr(sys, 'frozen', False):
+            # 打包环境下，使用可执行文件所在目录
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # 开发环境下，使用当前文件所在目录
+            base_path = os.path.dirname(os.path.abspath(__file__))
         
         logs_dir = os.path.join(base_path, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
@@ -3683,7 +3627,7 @@ def setup_logging():
             logging.info("="*50)
             logging.info("应用程序启动")
             logging.info(f"日志文件路径: {log_filename}")
-            logging.info(f"运行模式: 源码环境")
+            logging.info(f"运行模式: {'打包环境' if getattr(sys, 'frozen', False) else '开发环境'}")
             logging.info(f"Python版本: {sys.version}")
             logging.info(f"操作系统: {sys.platform}")
             logging.info("="*50)
@@ -3740,8 +3684,11 @@ if __name__ == '__main__':
         logging.info("程序启动")
         app = QApplication(sys.argv)
         
-        # 源码模式的图标路径
-        ICON_PATH = os.path.join(os.path.dirname(__file__), 'icons')
+        # 修改图标路径获取方式
+        if getattr(sys, 'frozen', False):
+            ICON_PATH = os.path.join(os.path.dirname(sys.executable), '_internal', 'icons')
+        else:
+            ICON_PATH = os.path.join(os.path.dirname(__file__), 'icons')
             
         logging.info(f"图标路径: {ICON_PATH}")
         
