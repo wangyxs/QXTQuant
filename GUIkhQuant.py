@@ -1378,14 +1378,14 @@ class KhQuantGUI(QMainWindow):
         
         # 佣金比例
         self.commission_rate = QLineEdit()
-        self.commission_rate.setValidator(QDoubleValidator(0.0, 1.0, 5))
+        self.commission_rate.setValidator(QDoubleValidator(0.0, 1.0, 7))
         self.commission_rate.setText("0.0001")
         cost_layout.addWidget(QLabel("佣金比例:"), 1, 0)
         cost_layout.addWidget(self.commission_rate, 1, 1)
         
         # 印花税
         self.stamp_tax = QLineEdit()
-        self.stamp_tax.setValidator(QDoubleValidator(0.0, 1.0, 5))
+        self.stamp_tax.setValidator(QDoubleValidator(0.0, 1.0, 7))
         self.stamp_tax.setText("0.0005")
         cost_layout.addWidget(QLabel("卖出印花税:"), 2, 0)
         cost_layout.addWidget(self.stamp_tax, 2, 1)
@@ -2497,9 +2497,9 @@ class KhQuantGUI(QMainWindow):
             if "min_commission" in trade_cost:
                 self.min_commission.setText(str(trade_cost["min_commission"]))
             if "commission_rate" in trade_cost:
-                self.commission_rate.setText(str(trade_cost["commission_rate"]))
+                self.commission_rate.setText(f"{trade_cost['commission_rate']:.7g}")
             if "stamp_tax_rate" in trade_cost:
-                self.stamp_tax.setText(str(trade_cost["stamp_tax_rate"]))
+                self.stamp_tax.setText(f"{trade_cost['stamp_tax_rate']:.7g}")
             if "flow_fee" in trade_cost:
                 self.flow_fee.setText(str(trade_cost["flow_fee"]))
             
@@ -4508,16 +4508,54 @@ class NoWheelComboBox(QComboBox):
         # 忽略滚轮事件，不调用父类的wheelEvent
         event.ignore()
 
-# 自定义QDateEdit类，禁用滚轮事件
+# 自定义QDateEdit类，禁用滚轮事件并修复中文显示
 class NoWheelDateEdit(QDateEdit):
-    """禁用滚轮事件的QDateEdit"""
+    """禁用滚轮事件的QDateEdit，修复中文显示问题"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setup_font()
+        
+    def setup_font(self):
+        """设置字体，解决中文显示问题"""
+        try:
+            from PyQt5.QtGui import QFont, QFontDatabase
+            # 尝试设置支持中文的字体
+            font_families = ["Microsoft YaHei", "SimHei", "SimSun", "Arial Unicode MS"]
+            for family in font_families:
+                if QFontDatabase().hasFamily(family):
+                    font = QFont(family, 9)
+                    font.setStyleHint(QFont.SansSerif)
+                    self.setFont(font)
+                    break
+        except Exception as e:
+            print(f"设置DateEdit字体时出错: {str(e)}")
+    
     def wheelEvent(self, event):
         # 忽略滚轮事件，不调用父类的wheelEvent
         event.ignore()
 
-# 自定义QTimeEdit类，禁用滚轮事件
+# 自定义QTimeEdit类，禁用滚轮事件并修复中文显示
 class NoWheelTimeEdit(QTimeEdit):
-    """禁用滚轮事件的QTimeEdit"""
+    """禁用滚轮事件的QTimeEdit，修复中文显示问题"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setup_font()
+        
+    def setup_font(self):
+        """设置字体，解决中文显示问题"""
+        try:
+            from PyQt5.QtGui import QFont, QFontDatabase
+            # 尝试设置支持中文的字体
+            font_families = ["Microsoft YaHei", "SimHei", "SimSun", "Arial Unicode MS"]
+            for family in font_families:
+                if QFontDatabase().hasFamily(family):
+                    font = QFont(family, 9)
+                    font.setStyleHint(QFont.SansSerif)
+                    self.setFont(font)
+                    break
+        except Exception as e:
+            print(f"设置TimeEdit字体时出错: {str(e)}")
+    
     def wheelEvent(self, event):
         # 忽略滚轮事件，不调用父类的wheelEvent
         event.ignore()
@@ -4740,6 +4778,50 @@ class DisclaimerDialog(QDialog):
 def main():
     try:
         app = QApplication(sys.argv)
+        
+        # 设置字体和编码，解决时间选择器乱码问题
+        try:
+            # 设置应用程序的默认字体
+            from PyQt5.QtGui import QFont, QFontDatabase
+            
+            # 添加系统字体
+            font_families = ["Microsoft YaHei", "SimHei", "SimSun", "Arial Unicode MS", "DejaVu Sans"]
+            default_font = None
+            
+            for family in font_families:
+                if QFontDatabase().hasFamily(family):
+                    default_font = QFont(family, 9)
+                    break
+            
+            if default_font:
+                app.setFont(default_font)
+                print(f"已设置应用字体: {default_font.family()}")
+            else:
+                # 使用系统默认字体
+                default_font = QFont()
+                default_font.setPointSize(9)
+                app.setFont(default_font)
+                print("使用系统默认字体")
+            
+            # 设置Qt的本地化
+            from PyQt5.QtCore import QLocale, QTranslator
+            
+            # 设置中文本地化
+            locale = QLocale(QLocale.Chinese, QLocale.China)
+            QLocale.setDefault(locale)
+            
+            # 创建并安装Qt翻译器
+            qt_translator = QTranslator()
+            # Qt标准控件的中文翻译
+            if qt_translator.load(locale, "qt", "_", ":/translations/"):
+                app.installTranslator(qt_translator)
+            elif qt_translator.load("qt_zh_CN", ":/translations/"):
+                app.installTranslator(qt_translator)
+            
+            print("已设置中文本地化")
+            
+        except Exception as e:
+            print(f"设置字体和本地化时出错: {str(e)}")
         
         # 禁用LibPNG警告消息
         os.environ["QT_IMAGEIO_MAXALLOC"] = "0"  # 禁用图像大小限制警告
