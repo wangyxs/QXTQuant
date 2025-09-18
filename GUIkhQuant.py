@@ -4918,13 +4918,13 @@ def main():
             def show_main_window():
                 try:
                     # 显示免责声明弹窗
-                    disclaimer_dialog = DisclaimerDialog()
-                    result = disclaimer_dialog.exec_()
-                    
-                    if result == QDialog.Rejected:
-                        # 用户拒绝免责声明，退出程序
-                        QApplication.quit()
-                        return
+                    # disclaimer_dialog = DisclaimerDialog()
+                    # result = disclaimer_dialog.exec_()
+                    #
+                    # if result == QDialog.Rejected:
+                    #     # 用户拒绝免责声明，退出程序
+                    #     QApplication.quit()
+                    #     return
                     
                     # 显示主窗口
                     window.showMaximized()  # 直接调用showMaximized()而不是show()
