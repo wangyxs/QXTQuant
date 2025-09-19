@@ -1340,11 +1340,12 @@ class KhQuantGUI(QMainWindow):
         file_layout.addWidget(self.strategy_path)
         file_layout.addWidget(select_btn)
         strategy_layout.addLayout(file_layout)
-        
-        # 运行模式选择（固定为回测）
+
+        # 运行模式选择
         mode_layout = QHBoxLayout()
-        self.mode_selector = QLabel("回测")  # 固定为回测模式
-        self.mode_selector.setStyleSheet("QLabel { padding: 3px; border: 1px solid #666666; background-color: #333333; color: #e8e8e8; }")
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems(["回测", "实盘"])
+        self.mode_selector.currentTextChanged.connect(self.mode_changed)  # 连接模式切换的信号
         mode_layout.addWidget(QLabel("运行模式:"))
         mode_layout.addWidget(self.mode_selector)
         strategy_layout.addLayout(mode_layout)
@@ -1983,15 +1984,19 @@ class KhQuantGUI(QMainWindow):
             # 更新回测时间和模式
             self.config["backtest"]["start_time"] = self.start_date.date().toString("yyyyMMdd")
             self.config["backtest"]["end_time"] = self.end_date.date().toString("yyyyMMdd")
-            
-            # 运行模式固定为回测
-            self.config["run_mode"] = "backtest"
-            
-            # 更新账户设置 - 从设置中读取
-            if "account" not in self.config:
-                self.config["account"] = {}
-            self.config["account"]["account_id"] = self.settings.value('account_id', '8888888888')
-            self.config["account"]["account_type"] = self.settings.value('account_type', 'STOCK')
+
+            # 更新运行模式
+            if "run_mode" in self.config:
+                mode_map = {"backtest": "回测", "live": "实盘"}
+                ui_mode_text = mode_map.get(self.config["run_mode"], "回测")
+                self.mode_selector.setCurrentText(ui_mode_text)
+
+                # 更新账户设置 - 从设置中读取
+                if "account" not in self.config:
+                    self.config["account"] = {}
+                # 从 QSettings 中读取 account_id，如果没有则给一个提示性的空值
+                self.config["account"]["account_id"] = self.settings.value('account_id', '')
+                self.config["account"]["account_type"] = self.settings.value('account_type', 'STOCK')
             
             # 更新初始资金和最小交易量 - 从虚拟账户设置中获取
             initial_capital = float(self.initial_cash.text())
@@ -2141,6 +2146,16 @@ class KhQuantGUI(QMainWindow):
     def start_strategy(self):
         try:
             self.log_message("开始启动策略...", "INFO")
+
+            # ================== 新增：实盘模式下的账号检查 ==================
+            self.update_config()  # 先更新一次配置
+            if self.config.get("run_mode") == "live":
+                account_id = self.config.get("account", {}).get("account_id")
+                if not account_id:
+                    QMessageBox.warning(self, "配置错误", "实盘模式下必须设置交易账号！\n请点击“设置”按钮进行配置。")
+                    self.log_message("启动失败：未配置实盘交易账号。", "ERROR")
+                    return
+            # =============================================================
             
             # 创建交易回调实例
             self.trader_callback = MyTraderCallback(self)
@@ -2366,20 +2381,23 @@ class KhQuantGUI(QMainWindow):
             event.accept()
 
     def mode_changed(self):
-        """运行模式改变时的处理（固定为回测模式）"""
-        # 固定为回测模式，启用所有相关设置
-        self.initial_cash.setEnabled(True)
-        self.commission_rate.setEnabled(True)
-        self.stamp_tax.setEnabled(True)
-        self.min_volume.setEnabled(True)
-        self.start_date.setEnabled(True)
-        self.end_date.setEnabled(True)
-        
-        # 隐藏实盘数据获取模块
-        self.update_realtime_data_group_status()
-        
-        # 更新状态
-        self.update_status("当前模式：回测模式")
+        """运行模式改变时的处理"""
+        mode = self.mode_selector.currentText()
+        is_backtest_mode = (mode == "回测")
+
+        # 根据模式启用/禁用回测相关的UI组件
+        self.start_date.setEnabled(is_backtest_mode)
+        self.end_date.setEnabled(is_backtest_mode)
+        self.initial_cash.setEnabled(is_backtest_mode)
+        self.benchmark_input.setEnabled(is_backtest_mode)
+        # 交易成本和滑点在实盘中也有意义（用于预估），因此保持启用
+
+        if is_backtest_mode:
+            self.update_status("当前模式：回测模式")
+            self.log_message("已切换到回测模式。", "INFO")
+        else:
+            self.update_status("当前模式：实盘模式")
+            self.log_message("已切换到实盘模式。请确保QMT已登录交易账号！", "WARNING")
 
     def load_config(self):
         """加载配置
@@ -2438,9 +2456,10 @@ class KhQuantGUI(QMainWindow):
         # 更新策略文件路径
         if "strategy_file" in self.config:
             self.strategy_path.setText(self.config["strategy_file"])
-            
-        # 运行模式固定为回测，无需更新选择器
-        self.config["run_mode"] = "backtest"
+
+        # 更新运行模式
+        mode_map = {"回测": "backtest", "实盘": "live"}
+        self.config["run_mode"] = mode_map.get(self.mode_selector.currentText(), "backtest")
             
         # 更新实盘数据获取模式
         if "data_mode" in self.config:

@@ -4,13 +4,15 @@ import datetime
 from types import SimpleNamespace
 
 from xtquant.xttrader import XtQuantTraderCallback
+from xtquant.xttype import StockAccount
 from xtquant import xtconstant
 
 class KhTradeManager:
     """交易管理类"""
     
-    def __init__(self, config, callback=None):
+    def __init__(self, config, trader=None, callback=None):
         self.config = config
+        self.trader = trader
         self.callback = callback  # 保存回调对象
         self.orders = {}  # 订单管理
         self.assets = {}  # 资产管理
@@ -220,17 +222,81 @@ class KhTradeManager:
         """
         # 根据运行模式选择不同的下单逻辑
         if self.config.run_mode == "live":
+            # 新增: 检查交易接口实例是否存在
+            if not self.trader:
+                error_msg = "实盘模式下交易接口未初始化，无法下单！"
+                print(f"[ERROR] {error_msg}")
+                if self.callback:
+                    self.callback.gui.log_message(error_msg, "ERROR")
+                return
             self._place_order_live(signal)
         elif self.config.run_mode == "simulate":
             self._place_order_simulate(signal)
         else:
             self._place_order_backtest(signal)
-        
+
     def _place_order_live(self, signal: Dict):
         """实盘下单逻辑"""
-        # 调用miniQMT的交易接口
-        print(f"实盘下单信号: {signal}")
-        # 这里需要调用实际的交易接口
+        try:
+            # 1. 获取账户信息
+            # 注意：实盘交易需要一个真实的、已登录的资金账号
+            # 我们从config中获取账号ID，并创建一个StockAccount实例
+            account_id = self.config.config_dict.get("account", {}).get("account_id")
+            if not account_id:
+                error_msg = "实盘模式下未配置资金账号(account_id)！"
+                print(f"[ERROR] {error_msg}")
+                if self.callback:
+                    self.callback.gui.log_message(error_msg, "ERROR")
+                return
+
+            acc = StockAccount(account_id, 'STOCK')  # 假设为普通股票账户
+
+            # 2. 映射委托类型
+            # 根据信号字典中的action，将其转换为xtquant的常量
+            order_type = xtconstant.STOCK_BUY if signal["action"].lower() == "buy" else xtconstant.STOCK_SELL
+
+            # 3. 映射价格类型 (price_type)
+            # 我们的框架目前使用 generate_signal 生成信号，它默认是限价单。
+            # 这里我们暂时固定为FIX_PRICE（指定价），后续可以扩展。
+            price_type = xtconstant.FIX_PRICE
+
+            # 4. 准备下单参数
+            stock_code = signal['code']
+            order_volume = signal['volume']
+            price = signal['price']
+            strategy_name = signal.get("strategy_name", "live_strategy")  # 策略名
+            order_remark = signal.get("reason", "")  # 将交易原因作为备注
+
+            # 5. 调用异步下单接口
+            # 使用异步接口 order_stock_async 是推荐的做法，因为它不会阻塞策略主线程。
+            # 交易的最终状态将通过回调函数 (on_stock_order, on_stock_trade, on_order_error) 推送回来。
+            seq = self.trader.order_stock_async(
+                acc,
+                stock_code,
+                order_type,
+                order_volume,
+                price_type,
+                price,
+                strategy_name,
+                order_remark
+            )
+
+            # 6. 日志记录
+            log_msg = (
+                f"发出实盘委托: [账号:{account_id}, 序号:{seq}] {stock_code} - "
+                f"{signal['action'].upper()} {order_volume}股 @ {price:.2f}, "
+                f"备注: {order_remark}"
+            )
+            print(f"[INFO] {log_msg}")
+            if self.callback:
+                self.callback.gui.log_message(log_msg, "TRADE")
+
+        except Exception as e:
+            error_msg = f"执行实盘下单时发生异常: {e}"
+            print(f"[ERROR] {error_msg}")
+            traceback.print_exc()  # 打印详细的错误堆栈
+            if self.callback:
+                self.callback.gui.log_message(error_msg, "ERROR")
         
     def _place_order_simulate(self, signal: Dict):
         """模拟下单逻辑"""
