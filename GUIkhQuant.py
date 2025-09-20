@@ -1419,21 +1419,30 @@ class KhQuantGUI(QMainWindow):
         time_group = QGroupBox("回测时间设置")
         time_layout = QGridLayout()
         
+        # --- 新增代码：获取当前日期和一年前的日期 ---
+        today = QDate.currentDate()
+        one_year_ago = today.addYears(-1)
+        # ---------------------------------------------
+
         # 开始日期选择
         self.start_date = NoWheelDateEdit()
-        self.start_date.setDisplayFormat("yyyy-MM-dd")  # 修改这里的显示格式
+        self.start_date.setDisplayFormat("yyyy-MM-dd")
         self.start_date.setCalendarPopup(True)
-        self.start_date.setMinimumDate(QDate(2000, 1, 1))
-        self.start_date.setMaximumDate(QDate.currentDate())
+        self.start_date.setMinimumDate(QDate(2000, 1, 1)) # 可选范围不变
+        self.start_date.setMaximumDate(today)             # 可选范围不变
+        self.start_date.setDate(one_year_ago)             # <-- 设置默认显示的日期为一年前
+
         time_layout.addWidget(QLabel("开始日期:"), 0, 0)
         time_layout.addWidget(self.start_date, 0, 1)
-        
+
         # 结束日期选择
         self.end_date = NoWheelDateEdit()
-        self.end_date.setDisplayFormat("yyyy-MM-dd")  # 修改这里的显示格式
+        self.end_date.setDisplayFormat("yyyy-MM-dd")
         self.end_date.setCalendarPopup(True)
-        self.end_date.setMinimumDate(QDate(2000, 1, 1))
-        self.end_date.setMaximumDate(QDate.currentDate())
+        self.end_date.setMinimumDate(QDate(2000, 1, 1)) # 可选范围不变
+        self.end_date.setMaximumDate(today)             # 可选范围不变
+        self.end_date.setDate(today)                      # <-- 设置默认显示的日期为今天
+
         time_layout.addWidget(QLabel("结束日期:"), 1, 0)
         time_layout.addWidget(self.end_date, 1, 1)
         
