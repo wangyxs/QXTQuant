@@ -2402,9 +2402,11 @@ class KhQuantGUI(QMainWindow):
         # 交易成本和滑点在实盘中也有意义（用于预估），因此保持启用
 
         if is_backtest_mode:
+            self.config['run_mode'] = 'backtest'
             self.update_status("当前模式：回测模式")
             self.log_message("已切换到回测模式。", "INFO")
         else:
+            self.config['run_mode'] = 'live'
             self.update_status("当前模式：实盘模式")
             self.log_message("已切换到实盘模式。请确保QMT已登录交易账号！", "WARNING")
 
@@ -2467,8 +2469,8 @@ class KhQuantGUI(QMainWindow):
             self.strategy_path.setText(self.config["strategy_file"])
 
         # 更新运行模式
-        mode_map = {"回测": "backtest", "实盘": "live"}
-        self.config["run_mode"] = mode_map.get(self.mode_selector.currentText(), "backtest")
+        mode_map = {"backtest": "回测", "live": "实盘"}
+        self.mode_selector.setCurrentText(mode_map.get(self.config["run_mode"], "回测"))
             
         # 更新实盘数据获取模式
         if "data_mode" in self.config:
@@ -3621,8 +3623,7 @@ class KhQuantGUI(QMainWindow):
         return [line.strip() for line in text.split('\n') if line.strip()]
 
     def get_run_mode(self):
-        """获取当前运行模式（固定为回测）"""
-        return "backtest"
+        return self.config["run_mode"]
         
     def get_slippage_settings(self):
         """获取滑点设置"""

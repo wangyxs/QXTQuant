@@ -552,9 +552,12 @@ class KhQuantFramework:
         """初始化交易接口和账户"""
         if self.run_mode == 'live':
             # 实盘模式，初始化真实交易接口
-            self.callback = self.create_callback()
+            # 直接使用从GUI传递过来的trader_callback
+            self.callback = self.trader_callback
             self.trader = XtQuantTrader(self.qmt_path, self.config.session_id)
-            self.trader.register_callback(self.callback)
+            # 确保回调对象存在再注册
+            if self.callback:
+                self.trader.register_callback(self.callback)
             print("XtQuantTrader inited")
 
             # 将真实的trader实例更新到trade_mgr
