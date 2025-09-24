@@ -558,6 +558,7 @@ class KhQuantFramework:
             # 确保回调对象存在再注册
             if self.callback:
                 self.trader.register_callback(self.callback)
+            self.trader.start()
             print("XtQuantTrader inited")
 
             # 将真实的trader实例更新到trade_mgr
@@ -889,6 +890,7 @@ class KhQuantFramework:
             if self.trader_callback:
                 self.trader_callback.gui.log_message("正在连接到QMT交易端...", "INFO")
             connect_result = self.trader.connect()
+            logging.info(f"连接结果: {connect_result}")
             if connect_result != 0:
                 self.trader_callback.gui.log_message(f"连接QMT失败，错误码: {connect_result}", "ERROR")
                 return  # 连接失败则直接退出
