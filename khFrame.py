@@ -849,35 +849,116 @@ class KhQuantFramework:
             # 初始化
             init_start = time.time()
             self.init_trader_and_account()  # 初始化交易接口和账户
-            # ... (此处省略大量原有的回测代码) ...
-
-            # 固定运行回測模式
+            init_time = time.time() - init_start
+            
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"交易接口初始化耗时: {init_time:.2f}秒", "INFO")
+            
+            # 初始化缓存
+            self.daily_price_cache = {}
+            self._cached_benchmark_close = {}
+            
+            # 直接从设置界面读取是否初始化数据的配置
+            from PyQt5.QtCore import QSettings
+            settings = QSettings('KHQuant', 'StockAnalyzer')
+            init_data_enabled = settings.value('init_data_enabled', True, type=bool)
+            
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"数据初始化设置: {'启用' if init_data_enabled else '禁用'}", "INFO")
+            
+            if init_data_enabled:
+                data_init_start = time.time()
+                if self.trader_callback:
+                    self.trader_callback.gui.log_message("开始初始化行情数据...", "INFO")
+                self.init_data() # 初始化行情数据
+                data_init_time = time.time() - data_init_start
+                
+                if self.trader_callback:
+                    self.trader_callback.gui.log_message(f"数据初始化耗时: {data_init_time:.2f}秒", "INFO")
+            else:
+                if self.trader_callback:
+                    self.trader_callback.gui.log_message("跳过数据初始化（根据设置禁用）", "INFO")
+            
+            # 读取股票列表
+            stock_list_start = time.time()
+            stock_codes = self.get_stock_list()
+            stock_list_time = time.time() - stock_list_start
+            
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"股票列表加载耗时: {stock_list_time:.2f}秒", "INFO")
+            
+            # 准备初始化数据结构，包含时间、账户、持仓、股票池等信息
+            init_data = {
+                "__current_time__": {
+                    "timestamp": int(time.time()),
+                    "datetime": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                    "time": datetime.datetime.now().strftime("%H:%M:%S")
+                },
+                "__account__": self.trade_mgr.assets,
+                "__positions__": self.trade_mgr.positions,
+                "__stock_list__": stock_codes,
+                "__framework__": self
+            }
+            
+            # 调用策略初始化函数，并传递完整数据结构
+            strategy_init_start = time.time()
+            self.strategy_module.init(stock_codes, init_data)
+            strategy_init_time = time.time() - strategy_init_start
+            
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"策略初始化耗时: {strategy_init_time:.2f}秒", "INFO")
+            
+            self.is_running = True
+            
+            # 记录预处理总耗时
+            preprocess_time = time.time() - self.start_time
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"预处理阶段总耗时: {preprocess_time:.2f}秒", "INFO")
+                self.trader_callback.gui.log_message("开始执行策略主逻辑...", "INFO")
+            
+            # 固定运行回测模式
             strategy_start = time.time()
             self._run_backtest()
             strategy_time = time.time() - strategy_start
-
-            # ... (此处省略大量原有的回测代码) ...
-
+            
+            if self.trader_callback:
+                self.trader_callback.gui.log_message(f"策略主逻辑执行耗时: {strategy_time:.2f}秒", "INFO")
+                
             # 保持程序运行
             while self.is_running:
                 time.sleep(1)
-
+                
         except Exception as e:
             error_msg = "框架运行异常: " + str(e)
             logging.error(error_msg, exc_info=True)
+            # 调用错误回调函数
             if self.trader_callback:
                 self.trader_callback.gui.log_message(error_msg, "ERROR")
-            raise
-
+            raise  # 重新抛出异常
+            
         finally:
+            # 记录策略结束运行时间并计算总耗时
             self.end_time = time.time()
             self.total_runtime = self.end_time - self.start_time
             end_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+            
             if self.trader_callback:
                 self.trader_callback.gui.log_message(f"策略结束运行时间: {end_datetime}", "INFO")
                 self.trader_callback.gui.log_message(f"策略总运行时长: {self.total_runtime:.2f}秒", "INFO")
-
+                
+                # 转换为更易读的格式
+                hours = int(self.total_runtime // 3600)
+                minutes = int((self.total_runtime % 3600) // 60)
+                seconds = self.total_runtime % 60
+                
+                if hours > 0:
+                    self.trader_callback.gui.log_message(f"策略运行时长: {hours}小时{minutes}分钟{seconds:.2f}秒", "INFO")
+                elif minutes > 0:
+                    self.trader_callback.gui.log_message(f"策略运行时长: {minutes}分钟{seconds:.2f}秒", "INFO")
+                else:
+                    self.trader_callback.gui.log_message(f"策略运行时长: {seconds:.2f}秒", "INFO")
+            
             self.stop()
 
     def _run_live(self):
