@@ -558,7 +558,7 @@ class KhQuantFramework:
             # 确保回调对象存在再注册
             if self.callback:
                 self.trader.register_callback(self.callback)
-            self.trader.start()
+
             print("XtQuantTrader inited")
 
             # 将真实的trader实例更新到trade_mgr
@@ -970,6 +970,10 @@ class KhQuantFramework:
             # 2. 连接到QMT
             if self.trader_callback:
                 self.trader_callback.gui.log_message("正在连接到QMT交易端...", "INFO")
+            
+            # start() 应该在 connect() 之前调用
+            self.trader.start()
+            
             connect_result = self.trader.connect()
             logging.info(f"连接结果: {connect_result}")
             if connect_result != 0:
@@ -997,19 +1001,28 @@ class KhQuantFramework:
 
             self.is_running = True
 
-            # 5. 进入实盘主循环
-            self.trader_callback.gui.log_message("进入实盘模式主循环，等待行情数据...", "INFO")
-            # 在实盘模式下，我们依赖回调函数来驱动策略，
-            # 主线程需要阻塞以保持程序运行和接收回调。
-            self.trader.run_forever()
+            # 5. 进入实盘主循环 (*** 这是关键修改 ***)
+            self.trader_callback.gui.log_message("进入实盘模式主循环，等待行情及交易回调...", "INFO")
+            
+            # 使用非阻塞循环代替 run_forever()
+            while self.is_running:
+                # 短暂休眠，让出CPU，同时允许线程检查 is_running 标志
+                time.sleep(1) # 每秒检查一次状态
+
+            # 循环结束后，说明收到了停止信号
+            self.trader_callback.gui.log_message("接收到停止信号，退出实盘主循环。", "INFO")
 
         except Exception as e:
             error_msg = f"实盘运行异常: {e}"
             logging.error(error_msg, exc_info=True)
             if self.trader_callback:
                 self.trader_callback.gui.log_message(error_msg, "ERROR")
+            # 即使发生异常，也确保is_running标志为False
+            self.is_running = False
             raise
         finally:
+            # finally 块中的 self.stop() 会被执行，从而调用 self.trader.stop()
+            self.trader_callback.gui.log_message("正在执行最后的清理操作...", "INFO")
             self.stop()
 
     def get_stock_list(self):
@@ -2715,23 +2728,40 @@ class KhQuantFramework:
 
 
     def stop(self):
-        """停止框架"""
+        """停止框架运行"""
+        # 1. 立即设置运行标志为False，这是最重要的第一步
+        if not self.is_running:
+            # 如果已经调用过stop，直接返回，防止重复执行
+            return
         self.is_running = False
         
-        # 记录结束时间（如果还没有记录的话）
+        # 2. 立即停止交易接口，这是最核心的清理操作
+        #    把它放在前面，确保能尽快断开与QMT的连接
+        if self.trader:
+            try:
+                print("正在调用 self.trader.stop()...")
+                self.trader.stop()
+                print("self.trader.stop() 调用完成。")
+                if self.trader_callback:
+                    self.trader_callback.gui.log_message("交易接口已停止。", "INFO")
+            except Exception as e:
+                # 记录停止过程中可能发生的异常
+                error_msg = f"停止交易接口时发生异常: {e}"
+                print(error_msg)
+                if self.trader_callback:
+                    self.trader_callback.gui.log_message(error_msg, "ERROR")
+
+        # 3. 记录日志和统计信息
         if self.end_time is None:
             self.end_time = time.time()
             if self.start_time is not None:
                 self.total_runtime = self.end_time - self.start_time
                 
-                # 记录停止日志
                 if self.trader_callback:
                     end_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     self.trader_callback.gui.log_message(f"策略手动停止时间: {end_datetime}", "INFO")
                     self.trader_callback.gui.log_message(f"策略总运行时长: {self._format_runtime(self.total_runtime)}", "INFO")
-        
-        if self.trader:
-            self.trader.stop()
+
             
     def check_connection(self) -> bool:
         """检查连接状态"""
